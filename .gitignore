@@ -18,3 +18,4 @@ tests/
 storage_raw_data/
 storage_wiki/
 storage_wiki_BA/
+.vscode/

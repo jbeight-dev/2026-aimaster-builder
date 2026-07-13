@@ -1,0 +1,8 @@
+# Placeholder domain-agnostic entity vocabulary. Extend per deployment domain.
+entity_types:
+  - term
+  - system
+  - person
+  - organization
+  - product
+  - procedure

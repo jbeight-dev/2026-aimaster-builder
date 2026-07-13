@@ -1,0 +1,63 @@
+paths:
+  data_root: storage_wiki
+  raw: storage_wiki/raw
+  staging: storage_wiki/staging
+  wiki_draft: storage_wiki/wiki/draft
+  wiki_approved: storage_wiki/wiki/approved
+  qdrant: storage_wiki/index/qdrant
+
+llm:
+  provider: azure               # azure | fake
+  azure_endpoint: "https://skax.ai-talentlab.com"
+  api_key_env: AOAI_API_KEY     # name of the env var holding the key; never inline the key
+  api_version: "2024-12-01-preview"
+  deployment: "aitl-prd-gpt-5.4"
+  structured_output_mode: json_object   # json_object | json_schema | tool_call
+  max_retries: 1
+
+embedding:
+  provider: azure               # azure | fake
+  azure_endpoint: "https://skax.ai-talentlab.com"
+  api_key_env: AOAI_API_KEY
+  api_version: "2024-12-01-preview"
+  deployment: "aitl-prd-text-embedding-3-small"
+  dimension: 1536
+
+qdrant:
+  mode: local                   # local | cloud (override via QDRANT_MODE env var)
+  path: storage_wiki/index/qdrant   # used when mode: local
+  url: ""                       # used when mode: cloud, e.g. https://xyz.cloud.qdrant.io (override via QDRANT_URL env var)
+  api_key_env: QDRANT_API_KEY   # name of the env var holding the Qdrant Cloud API key (mode: cloud only)
+  uuid_namespace: "6f6d6b1a-2f1e-4e2a-9a3a-llm-wiki-builder"
+  collection_summary: wiki_summary
+  collection_chunk: wiki_chunk
+
+chunking:
+  max_tokens: 400
+  overlap_tokens: 40
+
+splitting:
+  enabled: false
+  threshold_tokens: 6000
+
+relations:
+  # S5 (builder/relations.py) itself stays deterministic-only (FK + shared-
+  # entity see_also); this flag is unused by S5. LLM-assisted relation
+  # judgment now exists as the separate S5.5 curation stage below instead
+  # (builder/verify_curate.py), which always runs regardless of this flag.
+  use_llm: True
+
+# S5.5 - Verification & Relation Curation (extension, additive). Always runs
+# as part of `wiki ingest`; see LLM_WIKI_Builder_확장_검증_및_관계큐레이션.md.
+verification:
+  max_regen: 2       # bounded regeneration retries on a "regenerate" verdict
+  neighbor_top_k: 8   # candidate neighbor documents considered for relation curation
+
+# S2.5 - Translation (extension, additive). Runs right after S2 (Normalize),
+# before S3 (Enrich). English is detected deterministically (builder/translate.py);
+# non-English documents skip the LLM call entirely.
+translation:
+  enabled: true
+
+entity_types_file: config/entity_types.yaml
+relation_types_file: config/relation_types.yaml

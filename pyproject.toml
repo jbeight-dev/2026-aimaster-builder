@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm-wiki-builder"
+version = "0.1.0"
+description = "LLM WIKI Builder: uniform pdf/csv/txt/md/sqlite -> reviewable Wiki markdown -> Qdrant index pipeline."
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.0",
+    "langgraph>=0.2",
+    "qdrant-client>=1.9",
+    "pandas>=2.0",
+    "pymupdf>=1.24",
+    "pdfplumber>=0.11",
+    "markdown-it-py>=3.0",
+    "chardet>=5.0",
+    "python-dotenv>=1.0",
+    "pyyaml>=6.0",
+    "openai>=1.0",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+wiki = "cli:main"
+
+[tool.setuptools]
+packages = ["core", "builder", "builder.extract", "builder.indexing", "graphs", "api"]
+py-modules = ["cli"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

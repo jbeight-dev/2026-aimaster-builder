@@ -1,0 +1,6 @@
+relation_types:
+  - references
+  - parent_of
+  - see_also
+  - foreign_key
+  - linked_document

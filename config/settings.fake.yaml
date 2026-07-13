@@ -1,0 +1,51 @@
+# Same as settings.yaml but with fake (offline, deterministic) LLM/embedding
+# providers -- used by scripts/demo.sh so the demo runs with no network/keys.
+# Point --config at settings.yaml (or copy this file) to use real Azure calls.
+#
+# Uses its own data_demo/ root, separate from settings.yaml's storage_wiki/,
+# so running the offline demo never mixes fake-generated content into your
+# real wiki (and never accidentally skips a real LLM call via the idempotency
+# check because a fake-processed doc already "looks done").
+paths:
+  data_root: data_demo
+  raw: data_demo/raw
+  staging: data_demo/staging
+  wiki_draft: data_demo/wiki/draft
+  wiki_approved: data_demo/wiki/approved
+  qdrant: data_demo/index/qdrant
+
+llm:
+  provider: fake
+  deployment: "fake-llm"
+  structured_output_mode: json_object
+  max_retries: 1
+
+embedding:
+  provider: fake
+  deployment: "fake-embed"
+  dimension: 16
+
+qdrant:
+  mode: local
+  path: data_demo/index/qdrant
+  uuid_namespace: "6f6d6b1a-2f1e-4e2a-9a3a-llm-wiki-builder"
+  collection_summary: wiki_summary
+  collection_chunk: wiki_chunk
+
+chunking:
+  max_tokens: 400
+  overlap_tokens: 40
+
+splitting:
+  enabled: false
+  threshold_tokens: 6000
+
+relations:
+  use_llm: false
+
+verification:
+  max_regen: 2
+  neighbor_top_k: 8
+
+entity_types_file: config/entity_types.yaml
+relation_types_file: config/relation_types.yaml

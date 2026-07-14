@@ -35,6 +35,7 @@ uvicorn api.app:app --reload              # 기본 포트 8000, --port로 직접
 # 또는 .env의 API_PORT/API_HOST를 사용:
 python -m api.app
 ```
+uvicorn api.app:app --reload --port 8002
 
 `cli.py`의 각 명령을 그대로 REST로 감싼 것이다(같은 `builder/*.py`,
 `core/*.py` 함수를 호출한다). 모든 엔드포인트는 `/builderapi/v1` 아래에

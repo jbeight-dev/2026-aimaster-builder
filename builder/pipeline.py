@@ -19,6 +19,7 @@ from builder.intake import run_intake
 from builder.structuring import structure_document
 from core import manifest as manifest_io
 from core.ids import resolve_doc_id
+from core.progress import NULL_REPORTER, StageReporter
 from core.providers import LLMProvider
 from core.schemas import ExtractedDoc
 from core.wiki_io import WikiIndex, load_index, neighbor_candidates
@@ -32,17 +33,25 @@ def _write_staging(staging_root: Path, source_id: str, subdir: str, filename: st
 
 
 def _structure_and_translate(
-    doc: ExtractedDoc, llm: LLMProvider, translate_enabled: bool, regen_hint: str | None = None
+    doc: ExtractedDoc,
+    llm: LLMProvider,
+    translate_enabled: bool,
+    regen_hint: str | None = None,
+    reporter: StageReporter = NULL_REPORTER,
 ) -> tuple[str, list[str]]:
     """S2 (Normalize) followed by S2.5 (Translate, English-only, conditional)
     -- kept together since both call sites that (re)generate structured_md
     (initial + S5.5 regen loop) must translate the result before it flows
     into S3 enrich.
     """
+    reporter.start("structure", doc.doc_id)
     structured_md, flags = structure_document(doc, llm, regen_hint=regen_hint)
+    reporter.finish("structure", doc.doc_id)
     if not translate_enabled:
         return structured_md, flags
+    reporter.start("translate", doc.doc_id)
     structured_md, translate_flags = translate_mod.translate_document(structured_md, llm)
+    reporter.finish("translate", doc.doc_id)
     return structured_md, flags + translate_flags
 
 
@@ -56,6 +65,7 @@ def process_document(
     relation_types: list[str] | None = None,
     max_regen: int = 2,
     translate_enabled: bool = True,
+    reporter: StageReporter = NULL_REPORTER,
 ) -> str:
     """relation_types/max_regen (extension, additive): drive S5.5 verification
     + relation curation (builder/verify_curate.py), which runs after S5 on
@@ -79,8 +89,10 @@ def process_document(
     doc_id, slug = resolve_doc_id(doc.doc_id, doc.title, index.by_source_id, existing_doc_ids)
     existing = index.docs.get(doc_id)
 
-    structured_md, structure_flags = _structure_and_translate(doc, llm, translate_enabled)
+    structured_md, structure_flags = _structure_and_translate(doc, llm, translate_enabled, reporter=reporter)
+    reporter.start("enrich", doc.doc_id)
     enrichment = enrich_document(doc.doc_id, structured_md, llm, entity_types)
+    reporter.finish("enrich", doc.doc_id)
 
     attempt = 1
     while True:
@@ -90,13 +102,20 @@ def process_document(
             enrichment.model_dump_json(indent=2),
         )
 
+        reporter.start("metadata", doc.doc_id)
         fm = metadata_mod.assemble_frontmatter(doc, enrichment, intake_result, doc_id, slug, index, existing=existing)
+        reporter.finish("metadata", doc.doc_id)
+
+        reporter.start("relations", doc.doc_id)
         raw_relations = relations_mod.map_relations(doc, fm, index)
+        reporter.finish("relations", doc.doc_id)
 
         neighbor_ids = neighbor_candidates(index, fm)
+        reporter.start("verify", f"{doc.doc_id} attempt {attempt}")
         report = verify_curate.verify_and_curate(
             doc, structured_md, enrichment, fm, raw_relations, llm, relation_types, neighbor_ids, attempt
         )
+        reporter.finish("verify", f"{doc.doc_id} attempt {attempt}")
         _write_staging(
             paths["staging"], intake_result.source_id, "06_verification", f"{doc.doc_id}.json",
             report.model_dump_json(indent=2),
@@ -107,8 +126,12 @@ def process_document(
 
         hint = verify_curate.build_regen_hint(report)
         if report.completeness:
-            structured_md, structure_flags = _structure_and_translate(doc, llm, translate_enabled, regen_hint=hint)
+            structured_md, structure_flags = _structure_and_translate(
+                doc, llm, translate_enabled, regen_hint=hint, reporter=reporter
+            )
+        reporter.start("enrich", f"{doc.doc_id} regen")
         enrichment = enrich_document(doc.doc_id, structured_md, llm, entity_types, regen_hint=hint)
+        reporter.finish("enrich", f"{doc.doc_id} regen")
         attempt += 1
 
     valid_targets = set(neighbor_ids) | {r.target for r in raw_relations}
@@ -122,9 +145,11 @@ def process_document(
     # to see earlier tables already in the index.
     index.add_document(fm)
 
+    reporter.start("draft", doc.doc_id)
     body = review_mod.append_review_flags(structured_md, [*structure_flags, *enrichment.review_flags])
     body = verify_curate.annotate_body(body, report)
     review_mod.write_draft(paths["wiki_draft"], fm, body)
+    reporter.finish("draft", doc.doc_id)
 
     return doc_id
 
@@ -138,19 +163,23 @@ def run_ingest(
     relation_types: list[str] | None = None,
     max_regen: int = 2,
     translate_enabled: bool = True,
+    reporter: StageReporter = NULL_REPORTER,
 ) -> list[str]:
     """Runs S0-S6 for every ExtractedDoc produced from `path`. Returns the
     doc_ids that now have a draft on disk (decision E: a no-op re-ingest of an
     unchanged, fully-processed source just returns the previously recorded
     doc_ids instead of redoing work, unless force=True).
     """
+    reporter.start("intake", str(path))
     intake_result = run_intake(path, paths["raw"], paths["staging"])
     manifest = manifest_io.load_or_init(paths["staging"], intake_result.source_id, str(path))
+    reporter.finish("intake", str(path))
 
     if not force and not intake_result.changed and manifest_io.resume_step(manifest) is None:
         return manifest.doc_ids
 
     try:
+        reporter.start("extract", str(path))
         extraction = run_extraction(
             intake_result.raw_path,
             intake_result.source_id,
@@ -159,6 +188,7 @@ def run_ingest(
             title_hint=Path(intake_result.original_path).stem,
         )
         manifest_io.mark(manifest, "extract", "done")
+        reporter.finish("extract", str(path))
 
         index = load_index(paths["wiki_approved"])
         doc_ids: list[str] = []
@@ -166,7 +196,7 @@ def run_ingest(
             doc_ids.append(
                 process_document(
                     doc, intake_result, paths, llm, entity_types, index, relation_types, max_regen,
-                    translate_enabled,
+                    translate_enabled, reporter=reporter,
                 )
             )
 

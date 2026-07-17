@@ -15,6 +15,7 @@ from builder import ops
 from builder import pipeline
 from builder.review import list_drafts
 from core import factory, wiki_io
+from core.rich_reporter import RichReporter
 
 _load_context = factory.load_context
 
@@ -30,6 +31,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     doc_ids = pipeline.run_ingest(
         Path(args.path), paths, llm, entity_types, force=args.force,
         relation_types=relation_types, max_regen=max_regen, translate_enabled=translate_enabled,
+        reporter=RichReporter(),
     )
 
     print(f"Ingested '{args.path}' -> {len(doc_ids)} draft document(s):")

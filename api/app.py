@@ -7,26 +7,36 @@ Run with: uvicorn api.app:app --reload
 """
 from __future__ import annotations
 
+import json
 import os
-from typing import Any
+import threading
+from typing import Any, Iterator
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, UploadFile
 from fastapi import File as FastAPIFile
+from fastapi.responses import StreamingResponse
 
 from api import deps, schemas
 from builder import finalize as finalize_mod
 from builder import ops, pipeline
 from builder.review import list_drafts, read_draft
 from core import wiki_io
+from core.progress import CompositeReporter
 from core.providers import Embedder, LLMProvider
+from core.queue_reporter import QueueReporter
+from core.rich_reporter import RichReporter
 from core.schemas import WikiFrontmatter
 
 app = FastAPI(title="LLM WIKI Builder API")
 router = APIRouter(prefix="/builderapi/v1")
 
 
-@router.post("/ingest", response_model=schemas.IngestOut)
-@router.post("/analyze", response_model=schemas.IngestOut)
+def _sse(payload: dict[str, Any]) -> str:
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+@router.post("/ingest")
+@router.post("/analyze")
 def ingest(
     file: UploadFile = FastAPIFile(...),
     force: bool = False,
@@ -35,7 +45,15 @@ def ingest(
     llm: LLMProvider = Depends(deps.get_llm),
     entity_types: list[str] = Depends(deps.get_entity_types),
     relation_types: list[str] = Depends(deps.get_relation_types),
-) -> schemas.IngestOut:
+) -> StreamingResponse:
+    """Streams S0-S6 stage progress back to the caller over SSE as each stage
+    completes, instead of blocking silently until the whole (potentially
+    multi-minute, real-LLM) run finishes. The HTTP status is always 200 once
+    the stream starts (SSE has no way to change it mid-stream); a failed run
+    is reported in-band as a final `{"event": "error", ...}` message instead
+    of an HTTP error status, so callers must check the event type of the last
+    message rather than the status code.
+    """
     if not file.filename:
         raise HTTPException(status_code=400, detail="Uploaded file must have a filename")
 
@@ -51,14 +69,30 @@ def ingest(
 
     max_regen = config.get("verification", {}).get("max_regen", 2)
     translate_enabled = config.get("translation", {}).get("enabled", True)
-    try:
-        doc_ids = pipeline.run_ingest(
-            upload_path, paths, llm, entity_types, force=force,
-            relation_types=relation_types, max_regen=max_regen, translate_enabled=translate_enabled,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return schemas.IngestOut(doc_ids=doc_ids)
+
+    queue_reporter = QueueReporter()
+    reporter = CompositeReporter([RichReporter(), queue_reporter])
+
+    def run() -> None:
+        try:
+            doc_ids = pipeline.run_ingest(
+                upload_path, paths, llm, entity_types, force=force,
+                relation_types=relation_types, max_regen=max_regen, translate_enabled=translate_enabled,
+                reporter=reporter,
+            )
+            queue_reporter.queue.put({"event": "result", **schemas.IngestOut(doc_ids=doc_ids).model_dump()})
+        except ValueError as exc:
+            queue_reporter.queue.put({"event": "error", "detail": str(exc)})
+        finally:
+            queue_reporter.close()
+
+    threading.Thread(target=run, daemon=True).start()
+
+    def event_stream() -> Iterator[str]:
+        while (item := queue_reporter.queue.get()) is not None:
+            yield _sse(item)
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @router.get("/drafts", response_model=list[schemas.DraftOut])

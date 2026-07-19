@@ -94,6 +94,62 @@ def ingest(
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
+# Step2. Build endpoint
+@router.post("/build")
+def build(
+    file: UploadFile = FastAPIFile(...),
+    config: dict[str, Any] = Depends(deps.get_config),
+    paths: dict = Depends(deps.get_paths),
+    llm: LLMProvider = Depends(deps.get_llm),
+    entity_types: list[str] = Depends(deps.get_entity_types),
+) -> StreamingResponse:
+    """Streams S0-S6 stage progress over SSE (same transport as /ingest), but
+    skips S5.5 verification/curation: relations stay raw/uncurated and no
+    regen loop runs. A S6 draft file is still written for each document, same
+    as /ingest, so downstream (approve/verify/reindex) can resume from it via
+    doc_id. The final `result` event carries each document's frontmatter/body/
+    review_flags directly (in addition to the draft already on disk).
+    """
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Uploaded file must have a filename")
+
+    upload_dir = paths["raw"] / "_uploads"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    upload_path = upload_dir / file.filename
+    upload_path.write_bytes(file.file.read())
+
+    translate_enabled = config.get("translation", {}).get("enabled", True)
+
+    queue_reporter = QueueReporter()
+    reporter = CompositeReporter([RichReporter(), queue_reporter])
+
+    def run() -> None:
+        try:
+            results = pipeline.run_build(
+                upload_path, paths, llm, entity_types, translate_enabled=translate_enabled, reporter=reporter,
+            )
+            out = schemas.BuildOut(
+                documents=[
+                    schemas.BuildDocumentOut(
+                        doc_id=r.doc_id, document=r.frontmatter, body=r.structured_md, review_flags=r.review_flags,
+                    )
+                    for r in results
+                ]
+            )
+            queue_reporter.queue.put({"event": "result", **out.model_dump(mode="json")})
+        except ValueError as exc:
+            queue_reporter.queue.put({"event": "error", "detail": str(exc)})
+        finally:
+            queue_reporter.close()
+
+    threading.Thread(target=run, daemon=True).start()
+
+    def event_stream() -> Iterator[str]:
+        while (item := queue_reporter.queue.get()) is not None:
+            yield _sse(item)
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
 
 @router.get("/drafts", response_model=list[schemas.DraftOut])
 def get_drafts(paths: dict = Depends(deps.get_paths)) -> list[schemas.DraftOut]:
@@ -120,7 +176,7 @@ def get_document(
             raise HTTPException(status_code=404, detail=f"No document found for doc_id={doc_id!r}") from exc
     return schemas.DocumentOut(document=fm, body=body)
 
-
+# Step3. Approve
 @router.post("/documents/{doc_id}/approve", response_model=WikiFrontmatter)
 def approve(
     doc_id: str,
@@ -133,7 +189,7 @@ def approve(
     embed_model = config["embedding"]["deployment"]
     try:
         return finalize_mod.approve_document(
-            doc_id, paths, embedder, vector_store, namespace, embed_model, config["chunking"]
+            doc_id, paths, embedder, vector_store, namespace, embed_model, config["chunking"],
         )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -173,7 +229,7 @@ def index_status(
         approved_documents=approved_count, pending_drafts=draft_count, collections=counts
     )
 
-
+# AI 검토 의견
 @router.post("/documents/{doc_id}/verify", response_model=schemas.VerifyOut)
 def verify(
     doc_id: str,

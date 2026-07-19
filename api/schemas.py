@@ -18,6 +18,17 @@ class DocumentOut(BaseModel):
     body: str
 
 
+class BuildDocumentOut(BaseModel):
+    doc_id: str
+    document: WikiFrontmatter
+    body: str
+    review_flags: list[str]
+
+
+class BuildOut(BaseModel):
+    documents: list[BuildDocumentOut]
+
+
 class DraftOut(BaseModel):
     doc_id: str
     title: str

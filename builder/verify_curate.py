@@ -33,6 +33,7 @@ from core.schemas import (
     Finding,
     Relation,
     RelationSuggestion,
+    ValueChange,
     VerificationReport,
     WikiFrontmatter,
 )
@@ -46,6 +47,7 @@ _S55_COMMENT_RE = re.compile(r"<!--\s*S5\.5[^:]*:.*?-->", re.DOTALL)
 class _GroundingOutput(BaseModel):
     faithfulness: list[Finding] = Field(default_factory=list)
     completeness: list[str] = Field(default_factory=list)
+    value_changes: list[ValueChange] = Field(default_factory=list)
 
 
 class _CurationOutput(BaseModel):
@@ -68,10 +70,13 @@ def check_schema_issues(fm: WikiFrontmatter, enrichment: Enrichment) -> list[str
 
 
 def compute_verdict(
-    faithfulness: list[Finding], completeness: list[str], schema_issues: list[str]
+    faithfulness: list[Finding],
+    completeness: list[str],
+    value_changes: list[ValueChange],
+    schema_issues: list[str],
 ) -> str:
     ungrounded = [f for f in faithfulness if not f.grounded]
-    if completeness or any(f.severity == "high" for f in ungrounded):
+    if completeness or value_changes or any(f.severity == "high" for f in ungrounded):
         return "regenerate"
     if schema_issues or any(f.severity == "med" for f in ungrounded):
         return "review"
@@ -93,7 +98,7 @@ def verify_grounding(doc: ExtractedDoc, structured_md: str, llm: LLMProvider) ->
         system=system,
         user=user,
         schema=_GroundingOutput,
-        context={"faithfulness": [], "completeness": []},
+        context={"faithfulness": [], "completeness": [], "value_changes": []},
     )
     return result
 
@@ -179,7 +184,9 @@ def verify_and_curate(
     _, curation_issues = apply_curation(raw_relations, suggestions, valid_targets, set(relation_types))
 
     schema_issues = check_schema_issues(fm, enrichment) + curation_issues
-    verdict = compute_verdict(grounding.faithfulness, grounding.completeness, schema_issues)
+    verdict = compute_verdict(
+        grounding.faithfulness, grounding.completeness, grounding.value_changes, schema_issues
+    )
     score = compute_score(grounding.faithfulness)
 
     return VerificationReport(
@@ -189,6 +196,7 @@ def verify_and_curate(
         attempt=attempt,
         faithfulness=grounding.faithfulness,
         completeness=grounding.completeness,
+        value_changes=grounding.value_changes,
         schema_issues=schema_issues,
         relations=suggestions,
     )
@@ -198,6 +206,13 @@ def build_regen_hint(report: VerificationReport) -> str:
     parts: list[str] = []
     if report.completeness:
         parts.append("Missing from the previous attempt: " + "; ".join(report.completeness))
+    if report.value_changes:
+        vc_desc = "; ".join(
+            f"{vc.kind} changed from {vc.original_value!r} to {vc.changed_value!r} "
+            f"(should be {vc.original_value!r})"
+            for vc in report.value_changes
+        )
+        parts.append("Values altered from the original that must be restored exactly: " + vc_desc)
     ungrounded = [f.claim for f in report.faithfulness if not f.grounded]
     if ungrounded:
         parts.append("Unsupported claims to fix or remove: " + "; ".join(ungrounded))
@@ -219,6 +234,8 @@ def annotate_body(body: str, report: VerificationReport) -> str:
             lines.append(f"<!-- S5.5 UNGROUNDED ({finding.severity}): {finding.claim} -->")
     for missing in report.completeness:
         lines.append(f"<!-- S5.5 MISSING: {missing} -->")
+    for vc in report.value_changes:
+        lines.append(f"<!-- S5.5 VALUE_CHANGED ({vc.kind}): {vc.original_value} -> {vc.changed_value} -->")
     for suggestion in report.relations:
         if suggestion.action in ("add", "prune"):
             lines.append(

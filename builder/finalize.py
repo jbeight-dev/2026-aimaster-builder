@@ -1,7 +1,10 @@
-"""S7-S8 - Indexing + Finalize. Reads a draft (or, for reindex, an already
-approved doc) straight off disk -- decision B's "draft file is the source of
-truth, no live process" applies here: `wiki approve` can run in a completely
-new process from `wiki ingest`.
+"""S7-S8 - Indexing + Finalize. approve_document reads the draft from the
+wiki_draft filesystem path (builder/review.py::read_draft); reindex_document
+reads the already-approved doc straight off disk.
+
+Postgres-backed draft storage (core/db.py) was tried and reverted: nothing in
+this repo writes drafts into that table, so approve_document couldn't find
+any draft ingest actually produces. Ingest stays filesystem-only for now.
 
 section_summaries/doc_summary needed for chunk_context (decision A) live in
 the S3 staging artifact, not in the frontmatter -- staging is never deleted

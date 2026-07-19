@@ -41,6 +41,31 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_build(args: argparse.Namespace) -> int:
+    """S0-S6, minus S5.5 (extension, additive): intake through relation
+    mapping, skipping S5.5 verification/curation, then writes a S6 draft
+    file same as a normal ingest. Intended for callers (e.g. a UI) that want
+    a quick preview without paying for the S5.5 verification pass, while
+    still entering the normal human-review flow.
+    """
+    config, paths = _load_context(args.config)
+    llm = factory.build_llm_provider(config)
+    entity_types = factory.resolve_entity_types(config)
+    translate_enabled = config.get("translation", {}).get("enabled", True)
+
+    results = pipeline.run_build(
+        Path(args.path), paths, llm, entity_types, translate_enabled=translate_enabled, reporter=RichReporter(),
+    )
+
+    print(f"Built '{args.path}' -> {len(results)} document(s) (S0-S6, S5.5 skipped):")
+    for r in results:
+        flag_note = f" [{len(r.review_flags)} review flag(s)]" if r.review_flags else ""
+        print(f"  - {r.doc_id}: {r.frontmatter.title}{flag_note}")
+    print("Run `wiki review list` to inspect drafts, then `wiki approve <doc_id>`.")
+    print("Staging artifacts (02_structured, 03_enrichment) were written under staging/<source_id>/.")
+    return 0
+
+
 def cmd_review_list(args: argparse.Namespace) -> int:
     _, paths = _load_context(args.config)
     drafts = list_drafts(paths["wiki_draft"])
@@ -61,7 +86,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
     embed_model = config["embedding"]["deployment"]
 
     fm = finalize_mod.approve_document(
-        args.doc_id, paths, embedder, vector_store, namespace, embed_model, config["chunking"]
+        args.doc_id, paths, embedder, vector_store, namespace, embed_model, config["chunking"],
     )
     print(f"Approved {fm.id!r} (v{fm.version}) -> wiki/approved/{fm.id}.md, indexed into Qdrant.")
     return 0
@@ -118,7 +143,10 @@ def cmd_verify(args: argparse.Namespace) -> int:
         return 1
 
     print(report.model_dump_json(indent=2, exclude_none=True))
-    print(f"Updated {args.doc_id!r}: -> {len(updated_fm.relations)} relations, verdict={report.verdict}")
+    print(
+        f"Updated {args.doc_id!r}: -> {len(updated_fm.relations)} relations, "
+        f"verdict={report.verdict}, value_changes={len(report.value_changes)}"
+    )
     return 0
 
 
@@ -159,6 +187,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_ingest.add_argument("path", type=Path)
     p_ingest.add_argument("--force", action="store_true", help="Reprocess even if unchanged since last ingest")
     p_ingest.set_defaults(func=cmd_ingest)
+
+    p_build = sub.add_parser(
+        "build",
+        help="S0-S6, skipping S5.5 verification/curation; writes a draft same as ingest",
+    )
+    p_build.add_argument("path", type=Path)
+    p_build.set_defaults(func=cmd_build)
 
     p_review = sub.add_parser("review", help="Review draft documents")
     review_sub = p_review.add_subparsers(dest="review_command", required=True)

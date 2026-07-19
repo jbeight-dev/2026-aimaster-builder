@@ -57,6 +57,7 @@ def assemble_frontmatter(
     doc_id: str,
     slug: str,
     index: WikiIndex,
+    display_title: str,
     existing: WikiFrontmatter | None = None,
 ) -> WikiFrontmatter:
     now = datetime.now(timezone.utc)
@@ -78,7 +79,7 @@ def assemble_frontmatter(
 
     return WikiFrontmatter(
         id=doc_id,
-        title=doc.title,
+        title=display_title,
         slug=slug,
         source=source_ref,
         doc_type=infer_doc_type(intake.source_type),

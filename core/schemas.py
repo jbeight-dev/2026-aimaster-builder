@@ -140,6 +140,21 @@ class Finding(BaseModel):
     severity: Literal["low", "med", "high"]
 
 
+class ValueChange(BaseModel):
+    """S5.5 #3 (extension, additive): a number/SQL/command/config value that
+    appears in BOTH the original and the generated text but with a different
+    value -- distinct from Finding, which is presence/absence (hallucination),
+    not value fidelity. No severity field: unlike Finding, this is never
+    LLM-judged for consequence -- compute_verdict always treats a non-empty
+    value_changes list as "regenerate" (decision V6).
+    """
+
+    kind: Literal["number", "sql", "command", "config"]
+    original_value: str
+    changed_value: str
+    evidence: str | None = None
+
+
 class RelationSuggestion(BaseModel):
     """A pre-validation suggestion from S5.5's relation curation. `type` is a
     plain str (not the RelationType Literal) because it's unvalidated LLM
@@ -162,5 +177,6 @@ class VerificationReport(BaseModel):
     attempt: int
     faithfulness: list[Finding] = Field(default_factory=list)
     completeness: list[str] = Field(default_factory=list)
+    value_changes: list[ValueChange] = Field(default_factory=list)
     schema_issues: list[str] = Field(default_factory=list)
     relations: list[RelationSuggestion] = Field(default_factory=list)

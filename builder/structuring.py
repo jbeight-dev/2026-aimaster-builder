@@ -9,6 +9,7 @@ the source blocks.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -17,6 +18,8 @@ from core.providers import LLMProvider
 from core.schemas import Block, ExtractedDoc
 
 PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "structuring.md"
+
+_H1_RE = re.compile(r"^#[ \t]+(.+?)[ \t]*$", re.MULTILINE)
 
 
 class StructuredBody(BaseModel):
@@ -69,7 +72,8 @@ def structure_document(doc: ExtractedDoc, llm: LLMProvider, regen_hint: str | No
     fallback_markdown = render_blocks_naive(doc)
 
     user = (
-        f"Document title: {doc.title}\n\n"
+        f"Document title hint (may be an auto-generated filename, not necessarily "
+        f"meaningful -- see system prompt): {doc.title}\n\n"
         "Extracted blocks (JSON, in original order):\n"
         f"{[b.model_dump(exclude_none=True) for b in doc.blocks]}\n\n"
         "A naive baseline rendering (for reference, improve on this where useful, "
@@ -86,3 +90,12 @@ def structure_document(doc: ExtractedDoc, llm: LLMProvider, regen_hint: str | No
         context={"markdown": fallback_markdown},
     )
     return result.markdown, flags + result.review_flags
+
+
+def extract_title(markdown: str) -> str | None:
+    """Pulls the document's `#` heading text out of a structured body, so S4
+    can use it as the display title instead of the (possibly meaningless,
+    filename-derived) title fixed at S1 -- see builder/metadata.py.
+    """
+    match = _H1_RE.search(markdown)
+    return match.group(1).strip() if match else None

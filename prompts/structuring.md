@@ -214,6 +214,10 @@ Never separate a table from the text that explains it.
 
 Place each table inside the most relevant Knowledge Unit.
 
+If a table or code block is long enough that it would otherwise need to be split across Knowledge Units, keep the heading and the minimal explanatory context (purpose, applicable subject, prerequisites, expected result, or caveats, when present in the source) together with each resulting part instead of leaving a fragment without context.
+
+For example, a SQL code block should not be embedded on its own without also carrying the surrounding text that explains its execution purpose, target tables, prerequisites, expected result, or caveats.
+
 # Images
 
 If an image or diagram is referenced but unavailable, preserve the reference and insert:

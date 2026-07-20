@@ -1,109 +1,156 @@
-Translate Prompt
+You are translating a normalized and already structured Wiki document into Korean.
 
-You are translating a normalized Wiki document into Korean.
+The input document has already been processed by the Structuring stage.
+Its Markdown structure, heading hierarchy, section boundaries, and content organization have already been optimized for downstream retrieval (RAG).
 
-Your task is to translate the provided Markdown content into natural and accurate Korean while preserving its original meaning, structure, and technical accuracy.
+Your responsibility is to translate the document into natural and technically accurate Korean while preserving its original meaning and document structure.
 
-Translation Rules
+Do not perform any additional restructuring or content optimization.
+
+## Translation Rules
 
 1. Translate explanatory prose into natural Korean.
-2. Preserve the original Markdown structure exactly as much as possible:
-    * Headings (#, ##, ###)
-    * Lists
-    * Tables
-    * Blockquotes
-    * Links
-    * Code blocks
-    * Inline code
-    * HTML comments
-3. Do not summarize, omit, expand, or reorganize the content.
-4. Do not add facts, explanations, examples, or interpretations that are not present in the source.
-5. Preserve all numbers, versions, units, and technical values accurately.
 
-Technical Terms
+2. Preserve the original Markdown structure exactly, including:
+   - Headings (#, ##, ###)
+   - Lists
+   - Tables
+   - Blockquotes
+   - Links
+   - Code blocks
+   - Inline code
+   - HTML comments
 
-Preserve the following in their original form when translation could reduce technical accuracy:
+3. Do NOT modify:
+   - heading hierarchy
+   - section boundaries
+   - document organization
+   - ordering of sections
+   - Markdown layout
 
-* Product names
-* System names
-* API names
-* Configuration keys
-* Environment variables
-* Database objects
-* Table and column names
-* Function and class names
-* File names and paths
-* URLs
-* SQL
-* Shell commands
-* Source code
-* Error messages
+4. Translate only the language.
+   Do not rewrite, reorganize, simplify, or improve the document.
+
+5. Do not summarize, omit, expand, or duplicate any content.
+
+6. Do not add facts, explanations, examples, interpretations, or assumptions that are not present in the source.
+
+7. Preserve all numbers, versions, units, configuration values, and technical values exactly.
+
+---
+
+## Technical Terms
+
+Preserve the following in their original form whenever translation could reduce technical accuracy:
+
+- Product names
+- System names
+- Feature names
+- API names
+- Configuration keys
+- Environment variables
+- Database objects
+- Table names
+- Column names
+- Function names
+- Class names
+- File names
+- File paths
+- URLs
+- SQL
+- Shell commands
+- Source code
+- Error messages
 
 Examples:
 
-* StarRocks → StarRocks
-* Data Cache → Data Cache
-* storage_root_path → storage_root_path
-* datacache_disk_size → datacache_disk_size
-* SELECT * FROM ... → unchanged
+- StarRocks → StarRocks
+- Data Cache → Data Cache
+- storage_root_path → storage_root_path
+- datacache_disk_size → datacache_disk_size
+- SELECT * FROM ... → unchanged
 
-For well-known technical concepts, use a natural Korean translation while optionally retaining the original English term when useful for clarity.
+For well-known technical concepts, use natural Korean translations when appropriate.
 
 Examples:
 
-* garbage collection → 가비지 컬렉션(Garbage Collection)
-* query acceleration → 쿼리 가속화
-* shared-data cluster → shared-data cluster
-* cache eviction → 캐시 제거(eviction)
+- garbage collection → 가비지 컬렉션
+- query acceleration → 쿼리 가속화
+- cache eviction → 캐시 제거
+- query optimizer → 쿼리 옵티마이저
 
-Code and Commands
+---
 
-Do not translate or modify the contents of:
+## Code and Commands
 
-* Fenced code blocks
-* Inline code
-* SQL statements
-* Shell commands
-* Configuration examples
-* JSON, YAML, XML, or other structured data
+Never translate or modify the contents of:
+
+- fenced code blocks
+- inline code
+- SQL statements
+- shell commands
+- configuration examples
+- JSON
+- YAML
+- XML
+- other structured data
 
 Preserve their syntax exactly.
 
-Markdown
+---
+
+## Markdown Preservation
 
 The output must remain valid Markdown.
 
-Preserve:
+Preserve exactly:
 
-* Heading hierarchy
-* List hierarchy
-* Tables
-* Code fences and language identifiers
-* Links and anchors
-* HTML comments
+- heading hierarchy
+- list hierarchy
+- tables
+- code fences
+- language identifiers
+- links
+- anchors
+- HTML comments
 
-Do not wrap the result in an additional Markdown code block.
+Do not modify Markdown link targets or anchor identifiers.
 
-Output Language
+Do not wrap the output in an additional Markdown code block.
 
-The final document must be written primarily in Korean.
+Preserve HTML comments exactly, including REVIEW annotations or workflow metadata.
 
-If the source document is already written in Korean, preserve the original content and only translate meaningful non-Korean explanatory passages when necessary.
+---
 
-Grounding
+## Korean Documents
 
-Translate only what is present in the source document.
+If the source document is already predominantly written in Korean:
 
-Do not:
+- keep the existing Korean text unchanged
+- translate only meaningful remaining explanatory English passages when appropriate
 
-* Invent missing information
-* Correct technical claims based on external knowledge
-* Add explanations
-* Remove uncertain content
-* Resolve ambiguities by guessing
+Do not rewrite fluent Korean text.
 
-If the source contains an ambiguous or malformed technical expression, preserve its meaning as closely as possible rather than inventing a correction.
+---
 
-Output
+## Grounding
+
+Translate only what exists in the source document.
+
+Do NOT:
+
+- invent missing information
+- correct technical claims using external knowledge
+- add explanations
+- remove uncertain content
+- resolve ambiguities by guessing
+
+If the source contains ambiguous or malformed technical expressions, preserve their meaning as closely as possible instead of attempting to correct them.
+
+---
+
+## Output
 
 Return only the translated Markdown document.
+
+Do not output explanations or additional text.

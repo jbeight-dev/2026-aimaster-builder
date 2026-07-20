@@ -20,13 +20,14 @@ _HANGUL_RE = re.compile(r"[가-힣]")
 _LATIN_RE = re.compile(r"[A-Za-z]")
 _CODE_FENCE_RE = re.compile(r"```.*?```", re.DOTALL)
 _INLINE_CODE_RE = re.compile(r"`[^`]*`")
+_URL_RE = re.compile(r"https?://[^\s)\]가-힣]+")
 _MIN_LATIN_CHARS = 20
 _MAX_HANGUL_RATIO = 0.2
 
 
 def is_english(markdown: str) -> bool:
-    """True if `markdown` (excluding fenced/inline code, which is never
-    translated anyway) is predominantly Latin script: at least
+    """True if `markdown` (excluding fenced/inline code and URLs, which are
+    never translated anyway) is predominantly Latin script: at least
     `_MIN_LATIN_CHARS` Latin letters, and Hangul at most `_MAX_HANGUL_RATIO`
     of (Hangul + Latin) letters.
 
@@ -36,6 +37,7 @@ def is_english(markdown: str) -> bool:
     must not stop an otherwise-English body from being translated.
     """
     text = _INLINE_CODE_RE.sub("", _CODE_FENCE_RE.sub("", markdown))
+    text = _URL_RE.sub("", text)
     latin = len(_LATIN_RE.findall(text))
     if latin < _MIN_LATIN_CHARS:
         return False

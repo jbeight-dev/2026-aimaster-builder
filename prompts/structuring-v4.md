@@ -50,7 +50,6 @@ Each Knowledge Unit should:
 
 - focus on only one primary topic
 - remain understandable when read independently
-- make its technical subject immediately identifiable from its heading and opening sentence
 - avoid relying on neighboring sections
 - contain all information required to understand that topic
 
@@ -64,55 +63,16 @@ Avoid creating extremely small Knowledge Units unless they represent a genuinely
 
 Assume that every `##` section will later be indexed independently in a vector database and retrieved without neighboring sections.
 
-A reader should be able to understand a Knowledge Unit without reading the document title or any neighboring sections.
-
 Therefore each Knowledge Unit should:
 
 - include enough context to stand on its own
-- explicitly identify the technical subject (feature, component, API, configuration, command, or procedure)
+- avoid references such as "above", "below", "earlier", or "previous section"
 - keep related explanations together
 - keep examples with the text that explains them
 - keep tables with the paragraphs that reference them
 - keep code blocks with their surrounding explanations
 
-Avoid references such as:
-
-- above
-- below
-- earlier
-- previous section
-- following section
-
-Avoid ambiguous expressions whose meaning depends on another section, such as:
-
-- this feature
-- this component
-- this option
-- this configuration
-- this command
-- this procedure
-
-Whenever the technical subject is identifiable from the source, replace these expressions with the explicit technical subject.
-
-For example:
-
-Good:
-
-```markdown
-## Query Cache Configuration
-
-To enable Query Cache, configure the `cache_size` parameter.
-```
-
-Bad:
-
-```markdown
-## Configuration
-
-To enable this feature, configure the `cache_size` parameter.
-```
-
-When supported by the source, begin each Knowledge Unit with one short introductory sentence that explicitly identifies the technical subject.
+When supported by the source, begin each Knowledge Unit with one short introductory sentence describing the topic.
 
 Do not invent introductory summaries.
 
@@ -129,20 +89,9 @@ Do NOT replace meaningful headings such as:
 
 with generic titles.
 
-If the original heading is overly generic (for example "Overview", "Introduction", "Notes", "Configuration", "Usage", or "Examples"), replace it with a more specific heading derived only from the surrounding content.
+If the original heading is overly generic (for example "Overview", "Introduction", "Notes", or "Examples"), replace it with a more specific heading derived only from the surrounding content.
 
-Whenever possible, include the actual technical subject in the heading.
-
-For example:
-
-- Configuration → Query Cache Configuration
-- Usage → Query Cache Usage
-- Example → Query Cache Example
-- Best Practices → Query Cache Best Practices
-
-Do not invent technical subjects.
-
-Only use technical names explicitly supported by the source.
+Do not invent new concepts or topics.
 
 If the extracted document lacks clear hierarchy, infer a reasonable heading structure based only on the provided content.
 

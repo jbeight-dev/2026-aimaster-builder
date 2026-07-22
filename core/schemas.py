@@ -180,3 +180,23 @@ class VerificationReport(BaseModel):
     value_changes: list[ValueChange] = Field(default_factory=list)
     schema_issues: list[str] = Field(default_factory=list)
     relations: list[RelationSuggestion] = Field(default_factory=list)
+
+
+class ReviewAgentReport(BaseModel):
+    """Review Agent (external-facing, read-only) output: supports a human's
+    approval decision on a Wiki Draft. Unlike VerificationReport, this never
+    drives relation curation or a regeneration loop -- recommendation is
+    computed deterministically from the same grounding findings
+    (verify_curate.compute_verdict), never trusted from LLM self-report
+    (decision V6). Mirrors compute_verdict's three-way pass/review/regenerate
+    split: approve = no issues found, review = minor issues a human should
+    look over but that don't block approval, revise = issues serious enough
+    that the draft should be corrected before approval.
+    """
+
+    doc_id: str
+    recommendation: Literal["Approve", "Review", "Revise"]
+    faithfulness: list[Finding] = Field(default_factory=list)
+    completeness: list[str] = Field(default_factory=list)
+    value_changes: list[ValueChange] = Field(default_factory=list)
+    review_comment: str

@@ -139,7 +139,10 @@ def cmd_verify(args: argparse.Namespace) -> int:
     neighbor_top_k = config.get("verification", {}).get("neighbor_top_k", 8)
 
     try:
-        updated_fm, report = ops.run_verify(args.doc_id, paths, llm, relation_types, neighbor_top_k)
+        updated_fm, report = ops.run_verify(
+            args.doc_id, paths, llm, relation_types, neighbor_top_k,
+            reporter=RichReporter(),
+        )
     except (FileNotFoundError, ValueError) as exc:
         print(str(exc))
         return 1

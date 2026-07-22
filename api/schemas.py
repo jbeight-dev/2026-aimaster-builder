@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from core.schemas import VerificationReport, WikiFrontmatter
+from core.schemas import ReviewAgentReport, VerificationReport, WikiFrontmatter
 
 
 class IngestOut(BaseModel):
@@ -52,6 +52,10 @@ class ReindexPreviewOut(BaseModel):
 class VerifyOut(BaseModel):
     document: WikiFrontmatter
     report: VerificationReport
+
+
+class ReviewAgentOut(BaseModel):
+    report: ReviewAgentReport
 
 
 class RelinkRequest(BaseModel):

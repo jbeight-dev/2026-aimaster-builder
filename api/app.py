@@ -240,12 +240,31 @@ def verify(
 ) -> schemas.VerifyOut:
     neighbor_top_k = config.get("verification", {}).get("neighbor_top_k", 8)
     try:
-        updated_fm, report = ops.run_verify(doc_id, paths, llm, relation_types, neighbor_top_k)
+        updated_fm, report = ops.run_verify(
+            doc_id, paths, llm, relation_types, neighbor_top_k,
+            reporter=RichReporter(),
+        )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return schemas.VerifyOut(document=updated_fm, report=report)
+
+
+# Review Agent: read-only Faithfulness/Completeness check to support approval
+@router.post("/documents/{doc_id}/verify_agent", response_model=schemas.ReviewAgentOut)
+def verify_agent(
+    doc_id: str,
+    paths: dict = Depends(deps.get_paths),
+    llm: LLMProvider = Depends(deps.get_llm),
+) -> schemas.ReviewAgentOut:
+    try:
+        report = ops.run_review_agent(doc_id, paths, llm, reporter=RichReporter())
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return schemas.ReviewAgentOut(report=report)
 
 
 @router.post("/relink", response_model=list[schemas.RelinkResultOut])

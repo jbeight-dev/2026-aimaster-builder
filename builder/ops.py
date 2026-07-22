@@ -134,52 +134,59 @@ def run_review_agent(
     report is persisted as a staging audit artifact alongside 06_verification,
     but the wiki file itself is untouched.
     """
-    current_step = "locate"
+    step_locate = "locate / 문서 위치 확인"
+    step_plan = "plan / 검토 계획 수립"
+    step_simulate = "simulate / 근거 검증 시뮬레이션"
+    step_verdict = "verdict / 판정"
+    step_compose = "compose / 리뷰 코멘트 작성"
+    step_persist = "persist / 결과 저장"
+
+    current_step = step_locate
     try:
-        reporter.start("locate", f"{doc_id} · MCP")
+        reporter.start(step_locate, f"{doc_id} · MCP")
         target_path, fm, body, doc = _locate_target_and_original(doc_id, paths)
         clean_body = review_mod.strip_review_comments(body)
-        reporter.finish("locate", f"{doc_id} · MCP")
+        reporter.finish(step_locate, f"{doc_id} · MCP")
 
-        current_step = "plan"
-        reporter.start("plan", f"{doc_id} · Deep Reasoning")
+        current_step = step_plan
+        reporter.start(step_plan, f"{doc_id} · Deep Reasoning")
         checklist = _plan_review_checks(doc)
         reporter.log(
-            "plan",
+            step_plan,
             f"{len(checklist)}-step plan generated: {', '.join(checklist)}. Simulating plan...",
         )
-        reporter.finish("plan", f"{doc_id} · Deep Reasoning")
+        reporter.finish(step_plan, f"{doc_id} · Deep Reasoning")
 
-        current_step = "simulate"
-        reporter.start("simulate", f"{doc_id} · Deep Reasoning")
+        current_step = step_simulate
+        reporter.start(step_simulate, f"{doc_id} · Deep Reasoning")
         grounding = verify_curate.verify_grounding(doc, clean_body, llm)
         if "faithfulness" in checklist:
             ungrounded = [f for f in grounding.faithfulness if not f.grounded]
             high = sum(1 for f in ungrounded if f.severity == "high")
             reporter.log(
-                "simulate",
+                step_simulate,
                 f"faithfulness: {len(ungrounded)} ungrounded ({high} high) / {len(grounding.faithfulness)} claims",
             )
         if "completeness" in checklist:
-            reporter.log("simulate", f"completeness: {len(grounding.completeness)} gap(s)")
+            reporter.log(step_simulate, f"completeness: {len(grounding.completeness)} gap(s)")
         if "value_changes" in checklist:
-            reporter.log("simulate", f"value_changes: {len(grounding.value_changes)} mismatch(es)")
-        reporter.finish("simulate", f"{doc_id} · Deep Reasoning")
+            reporter.log(step_simulate, f"value_changes: {len(grounding.value_changes)} mismatch(es)")
+        reporter.finish(step_simulate, f"{doc_id} · Deep Reasoning")
 
-        current_step = "verdict"
-        reporter.start("verdict", doc_id)
+        current_step = step_verdict
+        reporter.start(step_verdict, doc_id)
         verdict = verify_curate.compute_verdict(
             grounding.faithfulness, grounding.completeness, grounding.value_changes, schema_issues=[]
         )
         recommendation = {"pass": "Approve", "review": "Review", "regenerate": "Revise"}[verdict]
-        reporter.finish("verdict", f"{doc_id} -> {recommendation}")
+        reporter.finish(step_verdict, f"{doc_id} -> {recommendation}")
 
-        current_step = "compose"
-        reporter.start("compose", doc_id)
+        current_step = step_compose
+        reporter.start(step_compose, doc_id)
         review_comment = review_agent_mod.compose_review_comment(
             grounding.faithfulness, grounding.completeness, grounding.value_changes
         )
-        reporter.finish("compose", doc_id)
+        reporter.finish(step_compose, doc_id)
 
         report = ReviewAgentReport(
             doc_id=doc_id,
@@ -190,13 +197,13 @@ def run_review_agent(
             review_comment=review_comment,
         )
 
-        current_step = "persist"
-        reporter.start("persist", f"{doc_id} · MCP")
+        current_step = step_persist
+        reporter.start(step_persist, f"{doc_id} · MCP")
         intake_source_id = Path(fm.source.raw_path).parent.name
         artifact_path = paths["staging"] / intake_source_id / "07_review_agent" / f"{doc_id}.json"
         artifact_path.parent.mkdir(parents=True, exist_ok=True)
         artifact_path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
-        reporter.finish("persist", f"{doc_id} · MCP")
+        reporter.finish(step_persist, f"{doc_id} · MCP")
     except Exception as exc:
         reporter.log(current_step, f"Review Agent 실패: {exc}", level="error")
         raise

@@ -26,6 +26,30 @@ from core.providers import LLMProvider
 from core.schemas import ExtractedDoc, WikiFrontmatter
 from core.wiki_io import WikiIndex, load_index, neighbor_candidates
 
+# Reporter-facing "영문 / 한글" labels. Keyed separately from manifest step
+# ids (core/manifest.py's StepName/STEP_ORDER) since those are a persisted
+# schema that must stay plain English -- these are display-only.
+STEP_INTAKE = "intake / 소스 인입"
+STEP_EXTRACT = "extract / 콘텐츠 추출"
+STEP_STRUCTURE = "structure / 문서 구조화"
+STEP_TRANSLATE = "translate / 번역"
+STEP_ENRICH = "enrich / 정보 보강"
+STEP_METADATA = "metadata / 메타데이터 조립"
+STEP_RELATIONS = "relations / 관계 매핑"
+STEP_VERIFY = "verify / 검증"
+STEP_DRAFT = "draft / 초안 저장"
+
+STEP_LABELS = {
+    "intake": STEP_INTAKE,
+    "extract": STEP_EXTRACT,
+    "structure": STEP_STRUCTURE,
+    "translate": STEP_TRANSLATE,
+    "enrich": STEP_ENRICH,
+    "metadata": STEP_METADATA,
+    "relations": STEP_RELATIONS,
+    "draft": STEP_DRAFT,
+}
+
 
 def _write_staging(staging_root: Path, source_id: str, subdir: str, filename: str, content: str) -> Path:
     p = Path(staging_root) / source_id / subdir / filename
@@ -46,20 +70,20 @@ def _structure_and_translate(
     (initial + S5.5 regen loop) must translate the result before it flows
     into S3 enrich.
     """
-    reporter.start("structure", doc.doc_id)
+    reporter.start(STEP_STRUCTURE, doc.doc_id)
     structured_md, flags = structure_document(doc, llm, regen_hint=regen_hint)
-    reporter.finish("structure", doc.doc_id)
+    reporter.finish(STEP_STRUCTURE, doc.doc_id)
     if flags:
-        reporter.log("structure", "; ".join(flags), level="warning")
+        reporter.log(STEP_STRUCTURE, "; ".join(flags), level="warning")
     if not translate_enabled:
         return structured_md, flags
-    reporter.start("translate", doc.doc_id)
+    reporter.start(STEP_TRANSLATE, doc.doc_id)
     if translate_mod.is_english(structured_md):
-        reporter.log("translate", "영어 문서 감지 → 한국어로 번역합니다")
+        reporter.log(STEP_TRANSLATE, "영어 문서 감지 → 한국어로 번역합니다")
     else:
-        reporter.log("translate", "영어가 아님 → 번역을 건너뜁니다")
+        reporter.log(STEP_TRANSLATE, "영어가 아님 → 번역을 건너뜁니다")
     structured_md, translate_flags = translate_mod.translate_document(structured_md, llm)
-    reporter.finish("translate", doc.doc_id)
+    reporter.finish(STEP_TRANSLATE, doc.doc_id)
     return structured_md, flags + translate_flags
 
 
@@ -98,11 +122,11 @@ def process_document(
     existing = index.docs.get(doc_id)
 
     structured_md, structure_flags = _structure_and_translate(doc, llm, translate_enabled, reporter=reporter)
-    reporter.start("enrich", doc.doc_id)
+    reporter.start(STEP_ENRICH, doc.doc_id)
     enrichment = enrich_document(doc.doc_id, structured_md, llm, entity_types)
-    reporter.finish("enrich", doc.doc_id)
+    reporter.finish(STEP_ENRICH, doc.doc_id)
     if enrichment.review_flags:
-        reporter.log("enrich", "; ".join(enrichment.review_flags), level="warning")
+        reporter.log(STEP_ENRICH, "; ".join(enrichment.review_flags), level="warning")
 
     attempt = 1
     while True:
@@ -112,25 +136,25 @@ def process_document(
             enrichment.model_dump_json(indent=2),
         )
 
-        reporter.start("metadata", doc.doc_id)
+        reporter.start(STEP_METADATA, doc.doc_id)
         display_title = extract_title(structured_md) or doc.title
         fm = metadata_mod.assemble_frontmatter(
             doc, enrichment, intake_result, doc_id, slug, index, display_title, existing=existing
         )
-        reporter.finish("metadata", doc.doc_id)
+        reporter.finish(STEP_METADATA, doc.doc_id)
 
-        reporter.start("relations", doc.doc_id)
+        reporter.start(STEP_RELATIONS, doc.doc_id)
         raw_relations = relations_mod.map_relations(doc, fm, index)
-        reporter.finish("relations", doc.doc_id)
+        reporter.finish(STEP_RELATIONS, doc.doc_id)
 
         neighbor_ids = neighbor_candidates(index, fm)
-        reporter.start("verify", f"{doc.doc_id} attempt {attempt}")
+        reporter.start(STEP_VERIFY, f"{doc.doc_id} attempt {attempt}")
         report = verify_curate.verify_and_curate(
             doc, structured_md, enrichment, fm, raw_relations, llm, relation_types, neighbor_ids, attempt
         )
-        reporter.finish("verify", f"{doc.doc_id} attempt {attempt}")
+        reporter.finish(STEP_VERIFY, f"{doc.doc_id} attempt {attempt}")
         reporter.log(
-            "verify",
+            STEP_VERIFY,
             f"verdict={report.verdict} score={report.score:.2f} schema_issues={len(report.schema_issues)}",
         )
         _write_staging(
@@ -142,16 +166,16 @@ def process_document(
             break
 
         hint = verify_curate.build_regen_hint(report)
-        reporter.log("verify", f"재생성 사유: {hint}", level="warning")
+        reporter.log(STEP_VERIFY, f"재생성 사유: {hint}", level="warning")
         if report.completeness:
             structured_md, structure_flags = _structure_and_translate(
                 doc, llm, translate_enabled, regen_hint=hint, reporter=reporter
             )
-        reporter.start("enrich", f"{doc.doc_id} regen")
+        reporter.start(STEP_ENRICH, f"{doc.doc_id} regen")
         enrichment = enrich_document(doc.doc_id, structured_md, llm, entity_types, regen_hint=hint)
-        reporter.finish("enrich", f"{doc.doc_id} regen")
+        reporter.finish(STEP_ENRICH, f"{doc.doc_id} regen")
         if enrichment.review_flags:
-            reporter.log("enrich", "; ".join(enrichment.review_flags), level="warning")
+            reporter.log(STEP_ENRICH, "; ".join(enrichment.review_flags), level="warning")
         attempt += 1
 
     valid_targets = set(neighbor_ids) | {r.target for r in raw_relations}
@@ -165,11 +189,11 @@ def process_document(
     # to see earlier tables already in the index.
     index.add_document(fm)
 
-    reporter.start("draft", doc.doc_id)
+    reporter.start(STEP_DRAFT, doc.doc_id)
     body = review_mod.append_review_flags(structured_md, [*structure_flags, *enrichment.review_flags])
     body = verify_curate.annotate_body(body, report)
     review_mod.write_draft(paths["wiki_draft"], fm, body)
-    reporter.finish("draft", doc.doc_id)
+    reporter.finish(STEP_DRAFT, doc.doc_id)
 
     return doc_id
 
@@ -190,16 +214,16 @@ def run_ingest(
     unchanged, fully-processed source just returns the previously recorded
     doc_ids instead of redoing work, unless force=True).
     """
-    reporter.start("intake", str(path))
+    reporter.start(STEP_INTAKE, str(path))
     intake_result = run_intake(path, paths["raw"], paths["staging"])
     manifest = manifest_io.load_or_init(paths["staging"], intake_result.source_id, str(path))
-    reporter.finish("intake", str(path))
+    reporter.finish(STEP_INTAKE, str(path))
 
     if not force and not intake_result.changed and manifest_io.resume_step(manifest) is None:
         return manifest.doc_ids
 
     try:
-        reporter.start("extract", str(path))
+        reporter.start(STEP_EXTRACT, str(path))
         extraction = run_extraction(
             intake_result.raw_path,
             intake_result.source_id,
@@ -208,7 +232,7 @@ def run_ingest(
             title_hint=Path(intake_result.original_path).stem,
         )
         manifest_io.mark(manifest, "extract", "done")
-        reporter.finish("extract", str(path))
+        reporter.finish(STEP_EXTRACT, str(path))
 
         index = load_index(paths["wiki_approved"])
         doc_ids: list[str] = []
@@ -225,7 +249,7 @@ def run_ingest(
         manifest.doc_ids = doc_ids
     except Exception as exc:
         failed_step = manifest_io.resume_step(manifest) or "draft"
-        reporter.log(failed_step, f"파이프라인 실패: {exc}", level="error")
+        reporter.log(STEP_LABELS.get(failed_step, failed_step), f"파이프라인 실패: {exc}", level="error")
         manifest_io.mark(manifest, failed_step, "failed", detail=str(exc))
         manifest_io.save(paths["staging"], manifest)
         raise
@@ -273,11 +297,11 @@ def build_document(
     existing = index.docs.get(doc_id)
 
     structured_md, structure_flags = _structure_and_translate(doc, llm, translate_enabled, reporter=reporter)
-    reporter.start("enrich", doc.doc_id)
+    reporter.start(STEP_ENRICH, doc.doc_id)
     enrichment = enrich_document(doc.doc_id, structured_md, llm, entity_types)
-    reporter.finish("enrich", doc.doc_id)
+    reporter.finish(STEP_ENRICH, doc.doc_id)
     if enrichment.review_flags:
-        reporter.log("enrich", "; ".join(enrichment.review_flags), level="warning")
+        reporter.log(STEP_ENRICH, "; ".join(enrichment.review_flags), level="warning")
 
     _write_staging(paths["staging"], intake_result.source_id, "02_structured", f"{doc.doc_id}.md", structured_md)
     _write_staging(
@@ -285,16 +309,16 @@ def build_document(
         enrichment.model_dump_json(indent=2),
     )
 
-    reporter.start("metadata", doc.doc_id)
+    reporter.start(STEP_METADATA, doc.doc_id)
     display_title = extract_title(structured_md) or doc.title
     fm = metadata_mod.assemble_frontmatter(
         doc, enrichment, intake_result, doc_id, slug, index, display_title, existing=existing
     )
-    reporter.finish("metadata", doc.doc_id)
+    reporter.finish(STEP_METADATA, doc.doc_id)
 
-    reporter.start("relations", doc.doc_id)
+    reporter.start(STEP_RELATIONS, doc.doc_id)
     raw_relations = relations_space_mod.map_relations_by_space(fm, index)
-    reporter.finish("relations", doc.doc_id)
+    reporter.finish(STEP_RELATIONS, doc.doc_id)
     fm = fm.model_copy(update={"relations": raw_relations})
 
     # Register immediately, same reasoning as process_document: a multi-table
@@ -305,10 +329,10 @@ def build_document(
 
     review_flags = [*structure_flags, *enrichment.review_flags]
 
-    reporter.start("draft", doc.doc_id)
+    reporter.start(STEP_DRAFT, doc.doc_id)
     draft_body = review_mod.append_review_flags(structured_md, review_flags)
     review_mod.write_draft(paths["wiki_draft"], fm, draft_body)
-    reporter.finish("draft", doc.doc_id)
+    reporter.finish(STEP_DRAFT, doc.doc_id)
 
     return BuildResult(doc_id=doc_id, frontmatter=fm, structured_md=structured_md, review_flags=review_flags)
 
@@ -328,13 +352,13 @@ def run_build(
     Unlike run_ingest, there is no `force` flag and no skip-if-unchanged
     short-circuit: a build call always (re)does the work.
     """
-    reporter.start("intake", str(path))
+    reporter.start(STEP_INTAKE, str(path))
     intake_result = run_intake(path, paths["raw"], paths["staging"])
     manifest = manifest_io.load_or_init(paths["staging"], intake_result.source_id, str(path))
-    reporter.finish("intake", str(path))
+    reporter.finish(STEP_INTAKE, str(path))
 
     try:
-        reporter.start("extract", str(path))
+        reporter.start(STEP_EXTRACT, str(path))
         extraction = run_extraction(
             intake_result.raw_path,
             intake_result.source_id,
@@ -343,7 +367,7 @@ def run_build(
             title_hint=Path(intake_result.original_path).stem,
         )
         manifest_io.mark(manifest, "extract", "done")
-        reporter.finish("extract", str(path))
+        reporter.finish(STEP_EXTRACT, str(path))
 
         index = load_index(paths["wiki_approved"])
         results: list[BuildResult] = [
@@ -362,7 +386,7 @@ def run_build(
         manifest.doc_ids = [r.doc_id for r in results]
     except Exception as exc:
         failed_step = manifest_io.resume_step(manifest) or "draft"
-        reporter.log(failed_step, f"파이프라인 실패: {exc}", level="error")
+        reporter.log(STEP_LABELS.get(failed_step, failed_step), f"파이프라인 실패: {exc}", level="error")
         manifest_io.mark(manifest, failed_step, "failed", detail=str(exc))
         manifest_io.save(paths["staging"], manifest)
         raise

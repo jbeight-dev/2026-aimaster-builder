@@ -21,12 +21,16 @@ from typing import Any
 
 from builder import review as review_mod
 from builder.indexing.chunker import chunk_markdown
-from builder.indexing.embedder import embed_chunks
+from builder.indexing.embedder import STEP_EMBED, embed_chunks
 from builder.indexing.qdrant_writer import VectorStore, reindex_document as _reindex_points, upsert_document as _upsert_points
 from core import wiki_io
 from core.progress import NULL_REPORTER, StageReporter
 from core.providers import Embedder
 from core.schemas import Chunk, Enrichment, WikiFrontmatter
+
+STEP_CHUNK = "chunk / 청크 생성"
+STEP_APPROVE = "approve / 승인 처리"
+STEP_REINDEX = "reindex / 재색인"
 
 
 def _intake_source_id_of(fm: WikiFrontmatter) -> str:
@@ -55,12 +59,14 @@ def _prepare_index_payload(
     enrichment = _load_enrichment(staging_root, fm)
     clean_body = review_mod.strip_review_comments(body)
     raw_chunks = chunk_markdown(clean_body, chunking["max_tokens"], chunking.get("overlap_tokens", 0))
-    reporter.log("chunk", f"{len(raw_chunks)}개 청크 생성 (max_tokens={chunking['max_tokens']})")
+    reporter.log(STEP_CHUNK, f"{len(raw_chunks)}개 청크 생성 (max_tokens={chunking['max_tokens']})")
     chunks_with_vectors = embed_chunks(
-        fm.id, raw_chunks, fm.title, enrichment.doc_summary, enrichment.section_summaries, embedder, namespace
+        fm.id, raw_chunks, fm.title, enrichment.doc_summary, enrichment.section_summaries, embedder, namespace,
+        reporter=reporter,
     )
-    reporter.log("embed", f"{len(chunks_with_vectors)}개 청크 임베딩 완료 (dim={embedder.dimension})")
+    reporter.start(STEP_EMBED, "요약 벡터")
     summary_vector = embedder.embed([fm.summary])[0]
+    reporter.finish(STEP_EMBED, "요약 벡터")
     return summary_vector, chunks_with_vectors
 
 
@@ -74,20 +80,20 @@ def approve_document(
     chunking: dict[str, Any],
     reporter: StageReporter = NULL_REPORTER,
 ) -> WikiFrontmatter:
-    reporter.start("approve", doc_id)
+    reporter.start(STEP_APPROVE, doc_id)
     fm, body = review_mod.read_draft(paths["wiki_draft"], doc_id)
-    reporter.log("approve", f"draft 로드: {fm.title!r}")
+    reporter.log(STEP_APPROVE, f"draft 로드: {fm.title!r}")
 
     summary_vector, chunks_with_vectors = _prepare_index_payload(
         fm, body, paths["staging"], embedder, namespace, chunking, reporter=reporter
     )
     _upsert_points(vector_store, namespace, fm, summary_vector, chunks_with_vectors, embed_model, embedder.dimension)
-    reporter.log("approve", f"Qdrant upsert 완료 (summary 1건, chunk {len(chunks_with_vectors)}건)")
+    reporter.log(STEP_APPROVE, f"Qdrant upsert 완료 (summary 1건, chunk {len(chunks_with_vectors)}건)")
 
     approved_fm = fm.model_copy(update={"review_status": "approved"})
     wiki_io.write(Path(paths["wiki_approved"]) / f"{doc_id}.md", approved_fm, body)
     review_mod.delete_draft(paths["wiki_draft"], doc_id)
-    reporter.finish("approve", doc_id)
+    reporter.finish(STEP_APPROVE, doc_id)
     return approved_fm
 
 
@@ -116,14 +122,14 @@ def reindex_document(
     chunking: dict[str, Any],
     reporter: StageReporter = NULL_REPORTER,
 ) -> WikiFrontmatter:
-    reporter.start("reindex", doc_id)
+    reporter.start(STEP_REINDEX, doc_id)
     fm, body = wiki_io.read(Path(paths["wiki_approved"]) / f"{doc_id}.md")
-    reporter.log("reindex", f"approved 문서 로드: {fm.title!r}")
+    reporter.log(STEP_REINDEX, f"approved 문서 로드: {fm.title!r}")
 
     summary_vector, chunks_with_vectors = _prepare_index_payload(
         fm, body, paths["staging"], embedder, namespace, chunking, reporter=reporter
     )
-    reporter.log("reindex", "기존 Qdrant 포인트 삭제 후 재색인")
+    reporter.log(STEP_REINDEX, "기존 Qdrant 포인트 삭제 후 재색인")
     _reindex_points(vector_store, namespace, fm, summary_vector, chunks_with_vectors, embed_model, embedder.dimension)
-    reporter.finish("reindex", doc_id)
+    reporter.finish(STEP_REINDEX, doc_id)
     return fm

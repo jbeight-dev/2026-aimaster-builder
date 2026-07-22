@@ -7,8 +7,11 @@ from __future__ import annotations
 import uuid
 
 from core.ids import chunk_point_id
+from core.progress import NULL_REPORTER, StageReporter
 from core.providers import Embedder
 from core.schemas import Chunk, RawChunk, SectionSummary
+
+STEP_EMBED = "embed / 임베딩 생성"
 
 
 def build_chunk_context(
@@ -30,13 +33,17 @@ def embed_chunks(
     section_summaries: list[SectionSummary],
     embedder: Embedder,
     namespace: uuid.UUID,
+    reporter: StageReporter = NULL_REPORTER,
 ) -> list[tuple[Chunk, list[float]]]:
     if not raw_chunks:
         return []
 
+    reporter.start(STEP_EMBED, f"{len(raw_chunks)}개 청크 벡터화")
     contexts = [build_chunk_context(doc_title, doc_summary, section_summaries, c) for c in raw_chunks]
     embed_inputs = [f"{ctx}\n\n{c.text}" for ctx, c in zip(contexts, raw_chunks)]
     vectors = embedder.embed(embed_inputs)
+    reporter.finish(STEP_EMBED, f"{len(raw_chunks)}개 청크 벡터화")
+    reporter.log(STEP_EMBED, f"{len(raw_chunks)}개 청크 임베딩 완료 (dim={embedder.dimension})")
 
     result: list[tuple[Chunk, list[float]]] = []
     for raw_chunk, ctx, vector in zip(raw_chunks, contexts, vectors):

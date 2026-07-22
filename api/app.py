@@ -177,7 +177,7 @@ def get_document(
     return schemas.DocumentOut(document=fm, body=body)
 
 # Step3. Approve
-@router.post("/documents/{doc_id}/approve", response_model=WikiFrontmatter)
+@router.post("/documents/{doc_id}/approve")
 def approve(
     doc_id: str,
     config: dict[str, Any] = Depends(deps.get_config),
@@ -185,14 +185,34 @@ def approve(
     embedder: Embedder = Depends(deps.get_embedder),
     vector_store=Depends(deps.get_vector_store),
     namespace=Depends(deps.get_namespace),
-) -> WikiFrontmatter:
+) -> StreamingResponse:
+    """Chunks, embeds, and indexes the draft document, then promotes it to
+    approved. Streams S7-S8 progress over SSE."""
     embed_model = config["embedding"]["deployment"]
-    try:
-        return finalize_mod.approve_document(
-            doc_id, paths, embedder, vector_store, namespace, embed_model, config["chunking"],
-        )
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    queue_reporter = QueueReporter()
+    reporter = CompositeReporter([RichReporter(), queue_reporter])
+
+    def run() -> None:
+        try:
+            fm = finalize_mod.approve_document(
+                doc_id, paths, embedder, vector_store, namespace, embed_model, config["chunking"],
+                reporter=reporter,
+            )
+            queue_reporter.queue.put({"event": "result", "document": fm.model_dump()})
+        except FileNotFoundError as exc:
+            queue_reporter.queue.put({"event": "error", "detail": str(exc)})
+        except ValueError as exc:
+            queue_reporter.queue.put({"event": "error", "detail": str(exc)})
+        finally:
+            queue_reporter.close()
+
+    threading.Thread(target=run, daemon=True).start()
+
+    def event_stream() -> Iterator[str]:
+        while (item := queue_reporter.queue.get()) is not None:
+            yield _sse(item)
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @router.post("/documents/{doc_id}/reindex")

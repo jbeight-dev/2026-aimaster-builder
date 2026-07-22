@@ -87,6 +87,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
 
     fm = finalize_mod.approve_document(
         args.doc_id, paths, embedder, vector_store, namespace, embed_model, config["chunking"],
+        reporter=RichReporter(),
     )
     print(f"Approved {fm.id!r} (v{fm.version}) -> wiki/approved/{fm.id}.md, indexed into Qdrant.")
     return 0
@@ -106,7 +107,8 @@ def cmd_reindex(args: argparse.Namespace) -> int:
     embed_model = config["embedding"]["deployment"]
 
     fm = finalize_mod.reindex_document(
-        args.doc_id, paths, embedder, vector_store, namespace, embed_model, config["chunking"]
+        args.doc_id, paths, embedder, vector_store, namespace, embed_model, config["chunking"],
+        reporter=RichReporter(),
     )
     print(f"Reindexed {fm.id!r} (v{fm.version}).")
     return 0

@@ -49,9 +49,15 @@ def _structure_and_translate(
     reporter.start("structure", doc.doc_id)
     structured_md, flags = structure_document(doc, llm, regen_hint=regen_hint)
     reporter.finish("structure", doc.doc_id)
+    if flags:
+        reporter.log("structure", "; ".join(flags), level="warning")
     if not translate_enabled:
         return structured_md, flags
     reporter.start("translate", doc.doc_id)
+    if translate_mod.is_english(structured_md):
+        reporter.log("translate", "영어 문서 감지 → 한국어로 번역합니다")
+    else:
+        reporter.log("translate", "영어가 아님 → 번역을 건너뜁니다")
     structured_md, translate_flags = translate_mod.translate_document(structured_md, llm)
     reporter.finish("translate", doc.doc_id)
     return structured_md, flags + translate_flags
@@ -95,6 +101,8 @@ def process_document(
     reporter.start("enrich", doc.doc_id)
     enrichment = enrich_document(doc.doc_id, structured_md, llm, entity_types)
     reporter.finish("enrich", doc.doc_id)
+    if enrichment.review_flags:
+        reporter.log("enrich", "; ".join(enrichment.review_flags), level="warning")
 
     attempt = 1
     while True:
@@ -121,6 +129,10 @@ def process_document(
             doc, structured_md, enrichment, fm, raw_relations, llm, relation_types, neighbor_ids, attempt
         )
         reporter.finish("verify", f"{doc.doc_id} attempt {attempt}")
+        reporter.log(
+            "verify",
+            f"verdict={report.verdict} score={report.score:.2f} schema_issues={len(report.schema_issues)}",
+        )
         _write_staging(
             paths["staging"], intake_result.source_id, "06_verification", f"{doc.doc_id}.json",
             report.model_dump_json(indent=2),
@@ -130,6 +142,7 @@ def process_document(
             break
 
         hint = verify_curate.build_regen_hint(report)
+        reporter.log("verify", f"재생성 사유: {hint}", level="warning")
         if report.completeness:
             structured_md, structure_flags = _structure_and_translate(
                 doc, llm, translate_enabled, regen_hint=hint, reporter=reporter
@@ -137,6 +150,8 @@ def process_document(
         reporter.start("enrich", f"{doc.doc_id} regen")
         enrichment = enrich_document(doc.doc_id, structured_md, llm, entity_types, regen_hint=hint)
         reporter.finish("enrich", f"{doc.doc_id} regen")
+        if enrichment.review_flags:
+            reporter.log("enrich", "; ".join(enrichment.review_flags), level="warning")
         attempt += 1
 
     valid_targets = set(neighbor_ids) | {r.target for r in raw_relations}
@@ -209,7 +224,9 @@ def run_ingest(
             manifest_io.mark(manifest, step, "done")
         manifest.doc_ids = doc_ids
     except Exception as exc:
-        manifest_io.mark(manifest, manifest_io.resume_step(manifest) or "draft", "failed", detail=str(exc))
+        failed_step = manifest_io.resume_step(manifest) or "draft"
+        reporter.log(failed_step, f"파이프라인 실패: {exc}", level="error")
+        manifest_io.mark(manifest, failed_step, "failed", detail=str(exc))
         manifest_io.save(paths["staging"], manifest)
         raise
     else:
@@ -259,6 +276,8 @@ def build_document(
     reporter.start("enrich", doc.doc_id)
     enrichment = enrich_document(doc.doc_id, structured_md, llm, entity_types)
     reporter.finish("enrich", doc.doc_id)
+    if enrichment.review_flags:
+        reporter.log("enrich", "; ".join(enrichment.review_flags), level="warning")
 
     _write_staging(paths["staging"], intake_result.source_id, "02_structured", f"{doc.doc_id}.md", structured_md)
     _write_staging(
@@ -342,7 +361,9 @@ def run_build(
             manifest_io.mark(manifest, step, "done")
         manifest.doc_ids = [r.doc_id for r in results]
     except Exception as exc:
-        manifest_io.mark(manifest, manifest_io.resume_step(manifest) or "draft", "failed", detail=str(exc))
+        failed_step = manifest_io.resume_step(manifest) or "draft"
+        reporter.log(failed_step, f"파이프라인 실패: {exc}", level="error")
+        manifest_io.mark(manifest, failed_step, "failed", detail=str(exc))
         manifest_io.save(paths["staging"], manifest)
         raise
     else:

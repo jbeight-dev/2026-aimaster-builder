@@ -13,6 +13,7 @@ from typing import Protocol
 class StageReporter(Protocol):
     def start(self, step: str, detail: str = "") -> None: ...
     def finish(self, step: str, detail: str = "") -> None: ...
+    def log(self, step: str, message: str, level: str = "info") -> None: ...
 
 
 class NullReporter:
@@ -20,6 +21,9 @@ class NullReporter:
         pass
 
     def finish(self, step: str, detail: str = "") -> None:
+        pass
+
+    def log(self, step: str, message: str, level: str = "info") -> None:
         pass
 
 
@@ -42,3 +46,7 @@ class CompositeReporter:
     def finish(self, step: str, detail: str = "") -> None:
         for r in self._reporters:
             r.finish(step, detail)
+
+    def log(self, step: str, message: str, level: str = "info") -> None:
+        for r in self._reporters:
+            r.log(step, message, level)

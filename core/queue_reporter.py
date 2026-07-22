@@ -23,6 +23,9 @@ class QueueReporter:
         elapsed = time.monotonic() - self._started_at.pop(step, time.monotonic())
         self.queue.put({"event": "finish", "step": step, "detail": detail, "elapsed": round(elapsed, 1)})
 
+    def log(self, step: str, message: str, level: str = "info") -> None:
+        self.queue.put({"event": "log", "step": step, "message": message, "level": level})
+
     def close(self) -> None:
         """Sentinel telling the draining generator no more events are coming."""
         self.queue.put(None)

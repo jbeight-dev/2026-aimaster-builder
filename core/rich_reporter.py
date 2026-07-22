@@ -30,3 +30,8 @@ class RichReporter:
     def finish(self, step: str, detail: str = "") -> None:
         elapsed = time.monotonic() - self._started_at.pop(step, time.monotonic())
         self.console.print(f"[green]✓[/green] {self._label(step, detail)} [dim]{elapsed:.1f}s[/dim]")
+
+    def log(self, step: str, message: str, level: str = "info") -> None:
+        icon = {"info": "[dim]·[/dim]", "warning": "[yellow]⚠[/yellow]", "error": "[red]✗[/red]"}.get(level, "·")
+        style = {"info": "dim", "warning": "yellow", "error": "red"}.get(level, "dim")
+        self.console.print(f"  {icon} [{style}]{step}: {message}[/{style}]")

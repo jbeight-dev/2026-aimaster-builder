@@ -198,7 +198,7 @@ def approve(
                 doc_id, paths, embedder, vector_store, namespace, embed_model, config["chunking"],
                 reporter=reporter,
             )
-            queue_reporter.queue.put({"event": "result", "document": fm.model_dump()})
+            queue_reporter.queue.put({"event": "result", "document": fm.model_dump(mode="json")})
         except FileNotFoundError as exc:
             queue_reporter.queue.put({"event": "error", "detail": str(exc)})
         except ValueError as exc:
